@@ -4,10 +4,14 @@ type ApplicationStatus = 'Open' | 'Rejected' | 'Withdrawn';
 
 type Application = {
   userId: UUID;
-  applicationId: UUID;
+  id: UUID;
+  schemeId: UUID;
   status: ApplicationStatus;
   createdAt: string;
   updatedAt: string;
+  withdrawn: boolean;
 };
 
-export { type Application };
+type PendingApplication = Omit<Application, 'id' | 'withdrawn'>;
+
+export { type Application, type PendingApplication };
