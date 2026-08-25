@@ -15,7 +15,9 @@ type ApplicationTestSpec = {
   condition: (ctx: {
     spec: ApplicationTestSpec;
     result?: UUID;
-    error?: unknown;
+    error?: {
+      message: string;
+    };
   }) => void;
 };
 
@@ -67,7 +69,6 @@ describe('ApplicationsController', () => {
       scheme: openAndInDateScheme,
       body: matchingBody,
       condition(ctx) {
-        console.log('CTZ', ctx);
         expect(ctx.result).toBeTruthy();
       },
     },
@@ -77,7 +78,9 @@ describe('ApplicationsController', () => {
       scheme: openAndExpiredScheme,
       body: matchingBody,
       condition(ctx) {
-        expect(ctx.error).toBeTruthy();
+        expect(ctx.error?.message).toEqual(
+          ApplicationsService.Errors.EXPIRED_SCHEME.message,
+        );
       },
     },
     {
@@ -86,14 +89,16 @@ describe('ApplicationsController', () => {
       scheme: closedAndInDateScheme,
       body: matchingBody,
       condition(ctx) {
-        expect(ctx.error).toBeTruthy();
+        expect(ctx.error?.message).toEqual(
+          ApplicationsService.Errors.CLOSED_SCHEME.message,
+        );
       },
     },
     {
       title:
         'Fail: throws an error when applying to an already applied to scheme.',
       user: candidate,
-      scheme: closedAndInDateScheme,
+      scheme: openAndInDateScheme,
       body: matchingBody,
       condition(ctx) {
         expect(ctx.error).toBeTruthy();
@@ -131,11 +136,11 @@ describe('ApplicationsController', () => {
           typeof spec.body === 'function' ? spec.body(spec) : spec.body;
 
         let result: UUID | undefined;
-        let error: unknown;
+        let error: { message: string } | undefined;
         try {
           result = applicationsController.createApplication(body);
-        } catch (e) {
-          error = e;
+        } catch (e: any) {
+          error = e as { message: string };
         }
 
         spec.condition({ spec, result, error });

@@ -19,6 +19,11 @@ const ApplicationStore = {
     // Assume this just never fails somehow, rather than implement faux DB error handling.
     return applications.get(id)!.id;
   },
+  getUsersApplications(userId: Application['userId']) {
+    return [...applications].filter(
+      ([_, application]) => application.userId === userId,
+    );
+  },
 };
 
 export { ApplicationStore };

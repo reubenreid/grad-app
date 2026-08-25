@@ -10,43 +10,58 @@ import { ApplicationStore } from '../stores/applicationStore';
 import { CreateApplicationDTO } from './applications.dto';
 import { SchemeStore, UserStore } from '../stores';
 import { UUID } from '../types';
+import { ApplicatonsErrors } from './applications.errors';
 
 @Injectable()
 export class ApplicationsService {
-  apply(application: PendingApplication): UUID {
+  static Errors = ApplicatonsErrors;
+
+  private apply(application: PendingApplication): UUID {
+    try {
+      return ApplicationStore.set(application);
+    } catch (e) {
+      throw new InternalServerErrorException(
+        ApplicationsService.Errors.APPLICATION_FAILED.message,
+        {
+          cause: e,
+          description:
+            ApplicationsService.Errors.APPLICATION_FAILED.description,
+        },
+      );
+    }
+  }
+
+  private hasUserAlreadyApplied({ userId, schemeId }: PendingApplication) {
+    const usersApplications = ApplicationStore.getUsersApplications(userId);
+
+    return usersApplications.some(
+      ([_, application]) =>
+        application.schemeId === schemeId && application.userId === userId,
+    );
+  }
+
+  private checkSchemeEligible(application: PendingApplication) {
     if (SchemeStore.schemeIsExpired(application.schemeId)) {
       throw new BadRequestException(
-        `Sorry, this scheme has expired; please find other open schemes on our site: `,
+        ApplicationsService.Errors.EXPIRED_SCHEME.message,
         {
-          description: `The scheme being applied to has expired.`,
+          description: ApplicationsService.Errors.EXPIRED_SCHEME.description,
         },
       );
     }
 
     if (!SchemeStore.schemeIsOpen(application.schemeId)) {
       throw new BadRequestException(
-        `Sorry, this scheme is no longer open; please find other open schemes on our site: `,
+        ApplicationsService.Errors.CLOSED_SCHEME.message,
         {
-          description: `The scheme being applied to is no longer open.`,
-        },
-      );
-    }
-
-    try {
-      return ApplicationStore.set(application);
-    } catch (e) {
-      throw new InternalServerErrorException(
-        `Sorry, applying to this scheme has failed; please try again later`,
-        {
-          cause: e,
-          description: `Couldn't set the application data.`,
+          description: ApplicationsService.Errors.CLOSED_SCHEME.description,
         },
       );
     }
   }
 
-  checkUserCanApply(candidateId: UUID) {
-    const user = UserStore.get(candidateId);
+  private checkUserEligible(application: PendingApplication) {
+    const user = UserStore.get(application.userId);
 
     if (!user) {
       // In application this would be a weird state, might have to assume something is garbled
@@ -59,10 +74,22 @@ export class ApplicationsService {
       );
     }
 
+    if (this.hasUserAlreadyApplied(application)) {
+      throw new BadRequestException(
+        ApplicationsService.Errors.ALREADY_APPLIED.message,
+        {
+          description: ApplicationsService.Errors.ALREADY_APPLIED.description,
+        },
+      );
+    }
+
     if (user.type !== 'Candidate') {
-      throw new ForbiddenException(`You cannot apply to graduate schemes.`, {
-        description: `Non students are unable to apply to schemes.`,
-      });
+      throw new ForbiddenException(
+        ApplicationsService.Errors.INELIGIBLE_USER.message,
+        {
+          description: ApplicationsService.Errors.INELIGIBLE_USER.description,
+        },
+      );
     }
   }
 
@@ -77,7 +104,8 @@ export class ApplicationsService {
       schemeId,
     };
 
-    this.checkUserCanApply(candidateId);
+    this.checkUserEligible(application);
+    this.checkSchemeEligible(application);
 
     return this.apply(application);
   }
