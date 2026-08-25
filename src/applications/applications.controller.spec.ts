@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import type { Server } from 'http';
+import { type Server } from 'http';
 import { randomUUID } from 'crypto';
 import { AppModule } from '../app.module';
 import {

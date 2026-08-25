@@ -2,12 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Application, ApplicationResponse, PendingApplication } from './types';
 import { ApplicationStore, SchemeStore, UserStore } from '../stores';
 import { CreateApplicationDTO } from './applications.dto';
-import { ApplicationsError, ApplicatonsErrors } from './applications.errors';
+import { ApplicationsError } from './applications.errors';
 
 @Injectable()
 export class ApplicationsService {
-  static Errors = ApplicatonsErrors;
-
   constructor(
     private readonly applicationStore: ApplicationStore,
     private readonly schemeStore: SchemeStore,
@@ -91,8 +89,6 @@ export class ApplicationsService {
       schemeId,
     };
 
-    // Ordered so the client gets the most actionable reason first: the scheme
-    // itself, then who is applying, then whether they already have.
     this.checkSchemeEligible(application);
     this.checkUserEligible(application);
 
