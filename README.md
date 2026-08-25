@@ -1,98 +1,52 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Overview
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Reuben's solution to the interview project. The project skeleton was generated using the NestJS `nest` cli, hence quite a bit of chaff around eslint/prettier and the tsconfig. `pnpm` is my package manager of choice as I usually work in a monorepo, but an `npm` install should still work, though it'll generate a new lockfile.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+#### AI Usage
 
-## Description
+Development was done by me with no AI tooling, with an AI-assisted cleanup review.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+#### Running the server
 
-## Project setup
+POST requests on `/applications` endpoint, expecting a request body like
 
-```bash
-$ pnpm install
+```ts
+{
+  candidateId: "", // Must be a valid UUID
+  schemeId: "" // Must be a valid UUID
+}
 ```
 
-## Compile and run the project
+`pnpm start` to run the server, `pnpm start:dev` to run with watch.
 
-```bash
-# development
-$ pnpm run start
+#### Tests
 
-# watch mode
-$ pnpm run start:dev
+Uses Jest to run e2e tests on the applications controller. Tests themselves are defined using a schema rather than imperatively typing out each one.
 
-# production mode
-$ pnpm run start:prod
-```
+Run the tests with
 
-## Run tests
+`pnpm test`
 
-```bash
-# unit tests
-$ pnpm run test
+## Product Questions
 
-# e2e tests
-$ pnpm run test:e2e
+_**Who is the primary user of this endpoint, and who else might call it later?**_
 
-# test coverage
-$ pnpm run test:cov
-```
+The primary user of the `/applications` endpoint would be a candidate trying to make an application to a scheme. Later it might also be used by whomever manages applications to accept/reject applications, or otherwise modify an application status, which feeds into my product decision. Managers might also be separate from whomever would actually evaluate those applications, i.e. you might have one person who is able to accept/reject applications, but multiple other non managerial users that could view and add comment to them. Then you'd consider how to separate the permissions, e.g. Managers can accept/reject/modify all fields of the application, Evaluators can only modify a set of fields assigned to them (a hypothetical Comments field for example.)
 
-## Deployment
+_**One product decision you made that is not in the rules above (and why).**_
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+Only users of a type "Candidate" can make applications. Besides thinking about how the user system would be structured, you wouldn't want non Candidate (think student) from being able to make applications for a few reasons:
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+- Allowing those who manage applications to also make applications could lead to some nefarious behaviour around rejecting other/accepting their own application.
+- This guards against frontend bugs in the case of a non Candidate accidentally calling the endpoint when attempting to get or modify the application.
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
+_**Two things you would not ship in v1, and why.**_
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+1. Generalised custom error harness. At the moment if there were another controller it would define its own error shape and language. Eventually you'd want to centralise these somewhere to ensure things are being named consistently, minimuse reuse for shared messages (`CANDIDATE_NOT_FOUND` would be a prime example of that). Currently you wouldn't have a meaningful amount of data to create that abstraction, for example supporting translations or further properties. You can't abstract from one example.
+2. You could recommend similar schemes to the applicant based on their application responses, e.g. based on location or skillset. Reason not to ship it would be that it's hard to make a good recommendation engine so it's not the sort of thing you want to feature-creep in, and that even though you have the data at the point of application to make recommendations, returning those recommendations in the response or having side effects off this endpoint wouldn't be the way to do it.
 
-## Resources
+_**What you would measure to know this is working (1-3 signals).**_
 
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- API call volume for the endpoint, with a breakdown by return code (a preponderance of fails would show something is probably wrong).
+- Latency rates, always somethign to monitor overtime as the endpoint expands in complexity with new features.
+- Cummulative call cost, e.g. cost per 1000 calls, probably against something like total number of calls. You'd expect cost to go up with the number of calls, but if cost increases despite flat usage then you'd need to look into why.
