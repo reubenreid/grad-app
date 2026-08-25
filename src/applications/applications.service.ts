@@ -1,101 +1,86 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  InternalServerErrorException,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { PendingApplication } from './types';
-import { ApplicationStore } from '../stores/applicationStore';
+import { Injectable } from '@nestjs/common';
+import { Application, ApplicationResponse, PendingApplication } from './types';
+import { ApplicationStore, SchemeStore, UserStore } from '../stores';
 import { CreateApplicationDTO } from './applications.dto';
-import { SchemeStore, UserStore } from '../stores';
-import { UUID } from '../types';
-import { ApplicatonsErrors } from './applications.errors';
+import { ApplicationsError, ApplicatonsErrors } from './applications.errors';
 
 @Injectable()
 export class ApplicationsService {
   static Errors = ApplicatonsErrors;
 
-  private apply(application: PendingApplication): UUID {
+  constructor(
+    private readonly applicationStore: ApplicationStore,
+    private readonly schemeStore: SchemeStore,
+    private readonly userStore: UserStore,
+  ) {}
+
+  private apply(application: PendingApplication): Application {
     try {
-      return ApplicationStore.set(application);
+      return this.applicationStore.set(application);
     } catch (e) {
-      throw new InternalServerErrorException(
-        ApplicationsService.Errors.APPLICATION_FAILED.message,
-        {
-          cause: e,
-          description:
-            ApplicationsService.Errors.APPLICATION_FAILED.description,
-        },
-      );
+      throw new ApplicationsError('APPLICATION_FAILED', e);
     }
   }
 
   private hasUserAlreadyApplied({ userId, schemeId }: PendingApplication) {
-    const usersApplications = ApplicationStore.getUsersApplications(userId);
-
-    return usersApplications.some(
-      ([_, application]) =>
-        application.status !== 'Withdrawn' &&
-        application.schemeId === schemeId &&
-        application.userId === userId,
-    );
+    return this.applicationStore
+      .getUsersApplications(userId)
+      .some(
+        (application) =>
+          application.schemeId === schemeId &&
+          application.status !== 'Withdrawn',
+      );
   }
 
-  private checkSchemeEligible(application: PendingApplication) {
-    if (SchemeStore.schemeIsExpired(application.schemeId)) {
-      throw new BadRequestException(
-        ApplicationsService.Errors.EXPIRED_SCHEME.message,
-        {
-          description: ApplicationsService.Errors.EXPIRED_SCHEME.description,
-        },
-      );
+  private checkSchemeEligible({ schemeId }: PendingApplication) {
+    const scheme = this.schemeStore.get(schemeId);
+
+    // Checked separately from the rules below so an unknown scheme reads as
+    // "we couldn't find that", rather than borrowing whichever rule a missing
+    // record happens to trip first.
+    if (!scheme) {
+      throw new ApplicationsError('SCHEME_NOT_FOUND');
     }
 
-    if (!SchemeStore.schemeIsOpen(application.schemeId)) {
-      throw new BadRequestException(
-        ApplicationsService.Errors.CLOSED_SCHEME.message,
-        {
-          description: ApplicationsService.Errors.CLOSED_SCHEME.description,
-        },
-      );
+    if (Date.now() > scheme.deadline.valueOf()) {
+      throw new ApplicationsError('SCHEME_DEADLINE_PASSED');
+    }
+
+    if (!scheme.isOpen) {
+      throw new ApplicationsError('SCHEME_CLOSED');
     }
   }
 
   private checkUserEligible(application: PendingApplication) {
-    const user = UserStore.get(application.userId);
+    const user = this.userStore.get(application.userId);
 
     if (!user) {
-      // In application this would be a weird state, might have to assume something is garbled
-      // around reading the userId from the session context, cookie etc. Maybe treat this like an unauthed state?
-      throw new UnauthorizedException(
-        `You aren't authorised for this request.`,
-        {
-          description: `User couldn't be fetched from the user store; assuming unauthorised.`,
-        },
-      );
-    }
-
-    if (this.hasUserAlreadyApplied(application)) {
-      throw new BadRequestException(
-        ApplicationsService.Errors.ALREADY_APPLIED.message,
-        {
-          description: ApplicationsService.Errors.ALREADY_APPLIED.description,
-        },
-      );
+      throw new ApplicationsError('CANDIDATE_NOT_FOUND');
     }
 
     if (user.type !== 'Candidate') {
-      throw new ForbiddenException(
-        ApplicationsService.Errors.INELIGIBLE_USER.message,
-        {
-          description: ApplicationsService.Errors.INELIGIBLE_USER.description,
-        },
-      );
+      throw new ApplicationsError('INELIGIBLE_USER');
+    }
+
+    if (this.hasUserAlreadyApplied(application)) {
+      throw new ApplicationsError('ALREADY_APPLIED');
     }
   }
 
-  createApplication({ candidateId, schemeId }: CreateApplicationDTO): UUID {
+  private toResponse(application: Application): ApplicationResponse {
+    return {
+      id: application.id,
+      candidateId: application.userId,
+      schemeId: application.schemeId,
+      status: application.status,
+      submittedAt: application.createdAt,
+    };
+  }
+
+  createApplication({
+    candidateId,
+    schemeId,
+  }: CreateApplicationDTO): ApplicationResponse {
     const now = new Date().toISOString();
 
     const application: PendingApplication = {
@@ -106,9 +91,11 @@ export class ApplicationsService {
       schemeId,
     };
 
-    this.checkUserEligible(application);
+    // Ordered so the client gets the most actionable reason first: the scheme
+    // itself, then who is applying, then whether they already have.
     this.checkSchemeEligible(application);
+    this.checkUserEligible(application);
 
-    return this.apply(application);
+    return this.toResponse(this.apply(application));
   }
 }

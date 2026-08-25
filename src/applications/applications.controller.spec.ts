@@ -1,150 +1,208 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ApplicationsController } from './applications.controller';
-import { ApplicationsService } from './applications.service';
+import { Test } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import request from 'supertest';
+import type { Server } from 'http';
 import { randomUUID } from 'crypto';
-import { SchemeStore, UserStore, type User } from '../stores';
-import { Scheme } from '../stores';
+import { AppModule } from '../app.module';
+import {
+  ApplicationStore,
+  SchemeStore,
+  UserStore,
+  type Scheme,
+  type User,
+} from '../stores';
 import { UUID } from '../types';
-import { CreateApplicationDTO } from './applications.dto';
-
-type ApplicationTestSpec = {
-  title: string;
-  user: User;
-  scheme: Scheme;
-  body: (spec: ApplicationTestSpec) => CreateApplicationDTO;
-  condition: (ctx: {
-    spec: ApplicationTestSpec;
-    result?: UUID;
-    error?: {
-      message: string;
-    };
-  }) => void;
-};
 
 const YEAR_MS = 3.154e10;
 
-const candidate: User = {
-  id: randomUUID(),
-  type: 'Candidate',
-};
+const candidate: User = { id: randomUUID(), type: 'Candidate' };
+const manager: User = { id: randomUUID(), type: 'Manager' };
 
-const manager: User = {
+const openScheme: Scheme = {
   id: randomUUID(),
-  type: 'Manager',
-};
-
-const openAndInDateScheme: Scheme = {
   deadline: new Date(Date.now() + YEAR_MS),
-  id: randomUUID(),
   isOpen: true,
 };
 
-const openAndExpiredScheme: Scheme = {
+const expiredScheme: Scheme = {
+  id: randomUUID(),
   deadline: new Date(Date.now() - YEAR_MS),
-  id: randomUUID(),
   isOpen: true,
 };
 
-const closedAndInDateScheme: Scheme = {
-  deadline: new Date(Date.now() + YEAR_MS),
+const closedScheme: Scheme = {
   id: randomUUID(),
+  deadline: new Date(Date.now() + YEAR_MS),
   isOpen: false,
 };
 
-// If you wanted tests for mis
-const matchingBody = (spec: ApplicationTestSpec): CreateApplicationDTO => {
-  return {
-    candidateId: spec.user?.id,
-    schemeId: spec.scheme?.id,
-  };
+type Stores = {
+  applications: ApplicationStore;
+  schemes: SchemeStore;
+  users: UserStore;
 };
 
-describe('ApplicationsController', () => {
-  let applicationsController: ApplicationsController;
+/** supertest types `.body` as `any`; this keeps the assertions honest. */
+type ResponseBody = Record<string, unknown>;
+
+const anyString = expect.any(String) as unknown;
+
+type ApplicationTestSpec = {
+  title: string;
+  /** Anything this case needs on top of the baseline fixtures. */
+  seed?: (stores: Stores) => void;
+  body: Record<string, unknown>;
+  expected: { status: number; code?: string };
+  assert?: (body: ResponseBody, response: request.Response) => void;
+};
+
+const applicationFor = (
+  userId: UUID,
+  schemeId: UUID,
+  status: 'Open' | 'Withdrawn',
+) => {
+  const now = new Date().toISOString();
+
+  return { userId, schemeId, status, createdAt: now, updatedAt: now } as const;
+};
+
+describe('POST /applications', () => {
+  let app: INestApplication;
+  let stores: Stores;
 
   const testSpecs: ApplicationTestSpec[] = [
     {
-      title: 'Success: should return the created application ID.',
-      user: candidate,
-      scheme: openAndInDateScheme,
-      body: matchingBody,
-      condition(ctx) {
-        expect(ctx.result).toBeTruthy();
-      },
-    },
-    {
-      title: 'Fail: throws an error when applying to an expired scheme.',
-      user: candidate,
-      scheme: openAndExpiredScheme,
-      body: matchingBody,
-      condition(ctx) {
-        expect(ctx.error?.message).toEqual(
-          ApplicationsService.Errors.EXPIRED_SCHEME.message,
+      title: 'Success: 201s with the created application.',
+      body: { candidateId: candidate.id, schemeId: openScheme.id },
+      expected: { status: 201 },
+      assert(body, response) {
+        expect(body).toEqual({
+          id: anyString,
+          candidateId: candidate.id,
+          schemeId: openScheme.id,
+          status: 'Open',
+          submittedAt: anyString,
+        });
+        expect(response.headers.location).toEqual(
+          `/applications/${String(body.id)}`,
         );
       },
     },
     {
-      title: 'Fail: throws an error when applying to a closed scheme.',
-      user: candidate,
-      scheme: closedAndInDateScheme,
-      body: matchingBody,
-      condition(ctx) {
-        expect(ctx.error?.message).toEqual(
-          ApplicationsService.Errors.CLOSED_SCHEME.message,
-        );
-      },
+      title: 'Fail: 409s when the scheme deadline has passed.',
+      body: { candidateId: candidate.id, schemeId: expiredScheme.id },
+      expected: { status: 409, code: 'SCHEME_DEADLINE_PASSED' },
+    },
+    {
+      title: 'Fail: 409s when the scheme is closed.',
+      body: { candidateId: candidate.id, schemeId: closedScheme.id },
+      expected: { status: 409, code: 'SCHEME_CLOSED' },
+    },
+    {
+      title: 'Fail: 409s when the candidate already has an open application.',
+      seed: ({ applications }) =>
+        void applications.set(
+          applicationFor(candidate.id, openScheme.id, 'Open'),
+        ),
+      body: { candidateId: candidate.id, schemeId: openScheme.id },
+      expected: { status: 409, code: 'ALREADY_APPLIED' },
     },
     {
       title:
-        'Fail: throws an error when applying to an already applied to scheme.',
-      user: candidate,
-      scheme: openAndInDateScheme,
-      body: matchingBody,
-      condition(ctx) {
-        expect(ctx.error).toBeTruthy();
+        'Success: 201s when the candidate’s only prior application was withdrawn.',
+      seed: ({ applications }) =>
+        void applications.set(
+          applicationFor(candidate.id, openScheme.id, 'Withdrawn'),
+        ),
+      body: { candidateId: candidate.id, schemeId: openScheme.id },
+      expected: { status: 201 },
+    },
+    {
+      title: 'Fail: 404s when the scheme does not exist.',
+      body: { candidateId: candidate.id, schemeId: randomUUID() },
+      expected: { status: 404, code: 'SCHEME_NOT_FOUND' },
+    },
+    {
+      title: 'Fail: 403s when a non-candidate applies.',
+      body: { candidateId: manager.id, schemeId: openScheme.id },
+      expected: { status: 403, code: 'INELIGIBLE_USER' },
+    },
+    {
+      title: 'Fail: 400s when the candidate does not exist.',
+      body: { candidateId: randomUUID(), schemeId: openScheme.id },
+      expected: { status: 400, code: 'CANDIDATE_NOT_FOUND' },
+    },
+    {
+      title: 'Fail: 400s when required fields are missing.',
+      body: {},
+      expected: { status: 400, code: 'INVALID_REQUEST' },
+      assert(body) {
+        expect(body.details).toEqual(
+          expect.arrayContaining([
+            'candidateId must be a valid ID.',
+            'schemeId must be a valid ID.',
+          ]),
+        );
       },
     },
     {
-      title: 'Fail: throws an error when a non candidate applies to a scheme.',
-      user: manager,
-      scheme: openAndInDateScheme,
-      body: matchingBody,
-      condition(ctx) {
-        expect(ctx.error).toBeTruthy();
+      title: 'Fail: 400s when the body carries unknown fields.',
+      body: {
+        candidateId: candidate.id,
+        schemeId: openScheme.id,
+        status: 'Accepted',
       },
+      expected: { status: 400, code: 'INVALID_REQUEST' },
     },
   ];
 
   beforeEach(async () => {
-    const app: TestingModule = await Test.createTestingModule({
-      controllers: [ApplicationsController],
-      providers: [ApplicationsService],
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
     }).compile();
 
-    applicationsController = app.get<ApplicationsController>(
-      ApplicationsController,
+    app = moduleRef.createNestApplication();
+    await app.init();
+
+    // Stores are providers, so each test gets its own empty instances and no
+    // case depends on another having run first.
+    stores = {
+      applications: app.get(ApplicationStore),
+      schemes: app.get(SchemeStore),
+      users: app.get(UserStore),
+    };
+
+    [candidate, manager].forEach((user) => stores.users.set(user));
+    [openScheme, expiredScheme, closedScheme].forEach((scheme) =>
+      stores.schemes.set(scheme),
     );
   });
 
-  describe('CreateApplications', () => {
-    testSpecs.forEach((spec) => {
-      it(spec.title, () => {
-        UserStore.set(spec.user.id, spec.user);
-        SchemeStore.set(spec.scheme.id, spec.scheme);
+  afterEach(async () => {
+    await app.close();
+  });
 
-        const body =
-          typeof spec.body === 'function' ? spec.body(spec) : spec.body;
+  testSpecs.forEach((spec) => {
+    it(spec.title, async () => {
+      spec.seed?.(stores);
 
-        let result: UUID | undefined;
-        let error: { message: string } | undefined;
-        try {
-          result = applicationsController.createApplication(body);
-        } catch (e: any) {
-          error = e as { message: string };
-        }
+      const response = await request(app.getHttpServer() as Server)
+        .post('/applications')
+        .send(spec.body);
 
-        spec.condition({ spec, result, error });
-      });
+      const body = response.body as ResponseBody;
+
+      expect(response.status).toEqual(spec.expected.status);
+
+      if (spec.expected.code) {
+        expect(body).toMatchObject({
+          statusCode: spec.expected.status,
+          code: spec.expected.code,
+          message: anyString,
+        });
+      }
+
+      spec.assert?.(body, response);
     });
   });
 });

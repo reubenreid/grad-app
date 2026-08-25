@@ -1,22 +1,60 @@
-export const ApplicatonsErrors = {
-  EXPIRED_SCHEME: {
-    message: `Sorry, this scheme has expired; please find other open schemes on our site: `,
-    description: `The scheme being applied to has expired.`,
+import { HttpException, HttpStatus } from '@nestjs/common';
+
+/**
+ * Every failure the client can see, in one place.
+ *
+ * `code` is the stable, machine-readable half of the contract: the client
+ * branches and localises on it. `message` is the human half, written for a
+ * student reading it in a browser, and is safe to render as-is.
+ */
+const ApplicatonsErrors = {
+  SCHEME_NOT_FOUND: {
+    status: HttpStatus.NOT_FOUND,
+    message: `We couldn't find that scheme. Check the link you followed, or browse our open schemes.`,
   },
-  CLOSED_SCHEME: {
-    message: `Sorry, this scheme is no longer open; please find other open schemes on our site: `,
-    description: `The scheme being applied to is no longer open.`,
+  SCHEME_DEADLINE_PASSED: {
+    status: HttpStatus.CONFLICT,
+    message: `The deadline for this scheme has passed. You can still apply to our other open schemes.`,
   },
-  APPLICATION_FAILED: {
-    message: `Sorry, applying to this scheme has failed; please try again later`,
-    description: `Couldn't set the application data.`,
+  SCHEME_CLOSED: {
+    status: HttpStatus.CONFLICT,
+    message: `This scheme is no longer accepting applications. You can still apply to our other open schemes.`,
   },
   ALREADY_APPLIED: {
-    message: `Sorry, you have already applied to this scheme; you may withdraw your application to apply again.`,
-    description: `Cannot have two open applications to the same scheme.`,
+    status: HttpStatus.CONFLICT,
+    message: `You have already applied to this scheme. Withdraw your existing application if you'd like to apply again.`,
+  },
+  CANDIDATE_NOT_FOUND: {
+    // A body field we couldn't resolve, so this is a bad request rather than an
+    // auth failure. Once candidateId comes from the session instead, this
+    // becomes a 401.
+    status: HttpStatus.BAD_REQUEST,
+    message: `We couldn't find that candidate account.`,
   },
   INELIGIBLE_USER: {
-    message: `You cannot apply to graduate schemes.`,
-    description: `Non students are unable to apply to schemes.`,
+    status: HttpStatus.FORBIDDEN,
+    message: `Only candidate accounts can apply to graduate schemes.`,
+  },
+  APPLICATION_FAILED: {
+    status: HttpStatus.INTERNAL_SERVER_ERROR,
+    message: `Sorry, we couldn't submit your application. Please try again shortly.`,
   },
 } as const;
+
+type ApplicationsErrorCode = keyof typeof ApplicatonsErrors;
+
+/**
+ * Emits the same envelope for every failure: { statusCode, code, message }.
+ *
+ * Note that Nest's `description` option is *not* used, because it is written
+ * into the response body rather than the logs.
+ */
+class ApplicationsError extends HttpException {
+  constructor(code: ApplicationsErrorCode, cause?: unknown) {
+    const { status, message } = ApplicatonsErrors[code];
+
+    super({ statusCode: status, code, message }, status, { cause });
+  }
+}
+
+export { ApplicatonsErrors, ApplicationsError, type ApplicationsErrorCode };

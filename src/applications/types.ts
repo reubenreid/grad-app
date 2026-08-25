@@ -11,6 +11,24 @@ type Application = {
   updatedAt: string;
 };
 
-type PendingApplication = Omit<Application, 'id' | 'withdrawn'>;
+type PendingApplication = Omit<Application, 'id'>;
 
-export { type Application, type PendingApplication };
+/**
+ * What the client actually receives. Deliberately not the stored shape:
+ * `userId` is surfaced as `candidateId` to match the request wording, and
+ * internal bookkeeping like `updatedAt` stays internal.
+ */
+type ApplicationResponse = {
+  id: UUID;
+  candidateId: UUID;
+  schemeId: UUID;
+  status: ApplicationStatus;
+  submittedAt: string;
+};
+
+export {
+  type Application,
+  type ApplicationStatus,
+  type PendingApplication,
+  type ApplicationResponse,
+};

@@ -1,28 +1,29 @@
+import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { Application, PendingApplication } from '../applications/types';
 
-const applications = new Map<Application['id'], Application>();
+// Intended to replicate some sort of wrapper around external store, ORM or API.
+@Injectable()
+class ApplicationStore {
+  private readonly applications = new Map<Application['id'], Application>();
 
-const ApplicationStore = {
-  get(id: Parameters<typeof applications.get>[0]) {
-    return applications.get(id);
-  },
-  set(args: PendingApplication) {
-    const id = randomUUID();
+  get(id: Application['id']) {
+    return this.applications.get(id);
+  }
 
-    applications.set(id, {
-      id,
-      ...args,
-    });
+  set(application: PendingApplication): Application {
+    const created: Application = { id: randomUUID(), ...application };
 
-    // Assume this just never fails somehow, rather than implement faux DB error handling.
-    return applications.get(id)!.id;
-  },
-  getUsersApplications(userId: Application['userId']) {
-    return [...applications].filter(
-      ([_, application]) => application.userId === userId,
+    this.applications.set(created.id, created);
+
+    return created;
+  }
+
+  getUsersApplications(userId: Application['userId']): Application[] {
+    return [...this.applications.values()].filter(
+      (application) => application.userId === userId,
     );
-  },
-};
+  }
+}
 
 export { ApplicationStore };
