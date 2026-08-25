@@ -12,7 +12,6 @@ const ApplicationStore = {
 
     applications.set(id, {
       id,
-      withdrawn: false,
       ...args,
     });
 

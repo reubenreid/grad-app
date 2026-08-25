@@ -9,7 +9,6 @@ type Application = {
   status: ApplicationStatus;
   createdAt: string;
   updatedAt: string;
-  withdrawn: boolean;
 };
 
 type PendingApplication = Omit<Application, 'id' | 'withdrawn'>;

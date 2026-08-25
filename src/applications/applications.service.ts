@@ -36,7 +36,9 @@ export class ApplicationsService {
 
     return usersApplications.some(
       ([_, application]) =>
-        application.schemeId === schemeId && application.userId === userId,
+        application.status !== 'Withdrawn' &&
+        application.schemeId === schemeId &&
+        application.userId === userId,
     );
   }
 
