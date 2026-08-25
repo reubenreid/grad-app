@@ -50,10 +50,10 @@ type ApplicationsErrorCode = keyof typeof ApplicatonsErrors;
  * into the response body rather than the logs.
  */
 class ApplicationsError extends HttpException {
-  constructor(code: ApplicationsErrorCode, cause?: unknown) {
+  constructor(code: ApplicationsErrorCode) {
     const { status, message } = ApplicatonsErrors[code];
 
-    super({ statusCode: status, code, message }, status, { cause });
+    super({ statusCode: status, code, message }, status);
   }
 }
 

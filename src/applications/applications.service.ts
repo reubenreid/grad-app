@@ -17,8 +17,8 @@ export class ApplicationsService {
   private apply(application: PendingApplication): Application {
     try {
       return this.applicationStore.set(application);
-    } catch (e) {
-      throw new ApplicationsError('APPLICATION_FAILED', e);
+    } catch {
+      throw new ApplicationsError('APPLICATION_FAILED');
     }
   }
 
